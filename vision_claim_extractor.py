@@ -1,3 +1,4 @@
+import sys
 import base64
 import json
 import os
@@ -8,8 +9,17 @@ from openai import OpenAI
 
 # ---------- CONFIG ----------
 BASE = Path(r"C:\Users\Admin\ECHS_claims")
-BILL_IMG = BASE / "bill.jpeg"
-PRES_IMG = BASE / "prescription.jpeg"
+
+if len(sys.argv) != 3:
+    print("Usage: python vision_claim_extractor.py <bill_image> <prescription_image>")
+    sys.exit(1)
+
+BILL_IMG = Path(sys.argv[1])
+PRES_IMG = Path(sys.argv[2])
+
+
+# BILL_IMG = BASE / "bill.jpeg"
+# PRES_IMG = BASE / "prescription.jpeg"
 TEMPLATE_DOCX = BASE / "ECHS_Claim_template.docx"
 OUT_JSON = BASE / "claim_template_payload.json"
 OUT_DOCX = BASE / "ECHS_Claim_filled.docx"
