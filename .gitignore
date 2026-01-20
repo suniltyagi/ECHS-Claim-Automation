@@ -8,3 +8,12 @@ __pycache__/
 # OS junk
 .DS_Store
 Thumbs.db
+# Outputs
+out/
+*.pdf
+*.docx~
+
+# Local / samples
+claim_values.json
+examples/*.local.json
+

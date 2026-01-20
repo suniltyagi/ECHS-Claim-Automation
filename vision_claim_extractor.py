@@ -1,82 +1,101 @@
-import sys
+"""
+vision_claim_extractor.py
+
+One script. One GPT-5 Vision call.
+Inputs : bill image + prescription image
+Outputs: claim_template_payload.json + ECHS_Claim_filled.docx
+
+Usage:
+  python vision_claim_extractor.py bill.jpeg prescription.jpeg
+  python vision_claim_extractor.py bill.jpeg prescription.jpeg ECHS_Claim_template.docx
+
+Requirements:
+  pip install openai python-docx
+  OPENAI_API_KEY set in environment
+"""
+
 import base64
 import json
 import os
+import re
+import sys
+from datetime import datetime
 from pathlib import Path
+
 from docx import Document
 from openai import OpenAI
 
 
-# ---------- CONFIG ----------
-BASE = Path(r"C:\Users\Admin\ECHS_claims")
+# ================= CONFIG =================
+MODEL = "gpt-5"
+OUT_JSON = "claim_template_payload.json"
+OUT_DOCX = "ECHS_Claim_filled.docx"
 
-if len(sys.argv) != 3:
-    print("Usage: python vision_claim_extractor.py <bill_image> <prescription_image>")
-    sys.exit(1)
-
-BILL_IMG = Path(sys.argv[1])
-PRES_IMG = Path(sys.argv[2])
-
-
-# BILL_IMG = BASE / "bill.jpeg"
-# PRES_IMG = BASE / "prescription.jpeg"
-TEMPLATE_DOCX = BASE / "ECHS_Claim_template.docx"
-OUT_JSON = BASE / "claim_template_payload.json"
-OUT_DOCX = BASE / "ECHS_Claim_filled.docx"
-
-MODEL = "gpt-4o"
-# ----------------------------
+# ONLY these keys will be bold + underlined
+BOLD_UNDERLINE_KEYS = {
+    "PATIENT_NAME",
+    "ECHS_CARD_NO",
+    "SERVICE_NO",
+    "TOTAL_AMOUNT",
+    "AMOUNT_WORDS",
+}
+# =========================================
 
 
 def b64(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
 
 
-def main():
+def extract_json(text: str) -> dict:
+    text = re.sub(r"```.*?\n", "", text, flags=re.S)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError("No JSON found in model output")
+    return json.loads(text[start:end + 1])
+
+
+def to_money_2dp(x) -> str:
+    if not x:
+        return ""
+    s = str(x).replace("₹", "").replace(",", "")
+    m = re.search(r"\d+(\.\d+)?", s)
+    return f"{float(m.group()):.2f}" if m else ""
+
+
+def to_rupees_slash(x) -> str:
+    if not x:
+        return ""
+    s = str(x).replace("₹", "").replace("/-", "").replace(",", "")
+    m = re.search(r"\d+(\.\d+)?", s)
+    return f"₹ {int(float(m.group()))} /-" if m else ""
+
+
+def extract_with_gpt5(bill_img: Path, rx_img: Path) -> dict:
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-    bill_b64 = b64(BILL_IMG)
-    pres_b64 = b64(PRES_IMG)
-
     prompt = """
-You are given TWO images:
-1) A pharmacy medicine bill
-2) An ECHS polyclinic prescription
+Extract data from the bill image and ECHS prescription image.
 
-TASK:
-Extract data and return ONE JSON object ONLY.
+Return ONE JSON object ONLY.
+No markdown. No commentary.
 
-RULES (MANDATORY):
-- No markdown
-- No explanations
-- No missing keys
-- Use empty string "" if a field is not present
+Rules:
+- Dates: DD-MM-YYYY
+- TOTAL_WO_DISCOUNT = subtotal before discount (2 decimals, no ₹)
+- TOTAL_AMOUNT = payable amount (2 decimals, no ₹)
+- Medicines: only purchased items (max 5)
 
-DATE FORMAT:
-- DD-MM-YYYY
-
-TOTALS:
-- TOTAL_WO_DISCOUNT = SUB TOTAL (before discount)
-- TOTAL_AMOUNT = GRAND TOTAL / PAYABLE
-- Both with 2 decimals
-
-MEDICINES:
-- Only medicines actually PURCHASED in the BILL
-- Max 5 medicines
-- FORM_MED_i must be TAB or CAP or ""
-- QTY_MED_i must be numeric string (e.g. "30")
-- AMT_i must be 2-decimal string (e.g. "192.00")
-
-OUTPUT JSON KEYS (MUST MATCH EXACTLY):
+Required keys (all must exist):
 
 {
   "PATIENT_NAME": "",
   "ECHS_CARD_NO": "",
+  "SERVICE_NO": "",
+  "MOBILE_NO": "",
   "DIAGNOSIS": "",
   "INVOICE_NO.": "",
   "DATE": "",
   "DATE_EXPENDITURE": "",
-  "CURRENT_MONTH_YEAR": "",
   "TOTAL_WO_DISCOUNT": "",
   "TOTAL_AMOUNT": "",
   "AMOUNT_WORDS": "",
@@ -86,51 +105,115 @@ OUTPUT JSON KEYS (MUST MATCH EXACTLY):
   "MED_4": "", "FORM_MED_4": "", "QTY_MED_4": "", "AMT_4": "",
   "MED_5": "", "FORM_MED_5": "", "QTY_MED_5": "", "AMT_5": ""
 }
-""".strip()
+"""
 
-    response = client.responses.create(
+    resp = client.responses.create(
         model=MODEL,
-        temperature=0.0,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{bill_b64}"},
-                    {"type": "input_image", "image_url": f"data:image/jpeg;base64,{pres_b64}"}
-                ],
-            }
-        ],
+        # temperature=0.0,
+        input=[{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_image", "image_url": f"data:image/jpeg;base64,{b64(bill_img)}"},
+                {"type": "input_image", "image_url": f"data:image/jpeg;base64,{b64(rx_img)}"},
+            ],
+        }],
     )
 
-    text = response.output[0].content[0].text.strip()
-    text = text[text.find("{"): text.rfind("}") + 1]
-    data = json.loads(text)
+    out_text = resp.output_text
+    if not out_text:
+        raise RuntimeError("GPT-5 returned empty output_text")
 
-    OUT_JSON.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    print(f"✅ JSON written: {OUT_JSON}")
-
-    fill_docx(data)
+    return extract_json(out_text)
 
 
-def fill_docx(data: dict):
-    doc = Document(TEMPLATE_DOCX)
+def normalise(data: dict) -> dict:
+    out = dict(data)
 
-    def replace(p):
-        for k, v in data.items():
-            p.text = p.text.replace(f"{{{{{k}}}}}", v)
+    # Dates
+    if not out.get("DATE_EXPENDITURE"):
+        out["DATE_EXPENDITURE"] = out.get("DATE", "")
+
+    out["CURRENT_MONTH_YEAR"] = datetime.now().strftime("%b %Y")
+
+    # Money formatting
+    out["TOTAL_AMOUNT"] = to_rupees_slash(out.get("TOTAL_AMOUNT"))
+    out["TOTAL_WO_DISCOUNT"] = f"₹ {to_money_2dp(out.get('TOTAL_WO_DISCOUNT'))}"
+
+    for i in range(1, 6):
+        out[f"AMT_{i}"] = to_money_2dp(out.get(f"AMT_{i}"))
+
+    return out
+
+
+def replace_para(p, data):
+    for k, v in data.items():
+        ph = f"{{{{{k}}}}}"
+        if ph not in p.text:
+            continue
+
+        if p.text.strip() == ph and k in BOLD_UNDERLINE_KEYS:
+            p.clear()
+            r = p.add_run(v)
+            r.bold = True
+            r.underline = True
+            r.font.color.rgb = None  # ← CRITICAL
+        else:
+            for r in p.runs:
+                r.text = r.text.replace(ph, v)
+
+from docx.shared import Inches
+
+def fix_certified_statements(doc):
+    mapping = {
+        "(1)": "(a)",
+        "(2)": "(b)",
+    }
 
     for p in doc.paragraphs:
-        replace(p)
+        text = p.text.strip()
+        for old, new in mapping.items():
+            if text.startswith(old):
+                p.text = text.replace(old, new, 1)
+                p.paragraph_format.left_indent = Inches(0.5)
 
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    replace(p)
 
-    doc.save(OUT_DOCX)
-    print(f"✅ DOCX created: {OUT_DOCX}")
+
+def fill_docx(template: Path, out_path: Path, data: dict):
+    doc = Document(template)
+
+    for p in doc.paragraphs:
+        replace_para(p, data)
+
+    for t in doc.tables:
+        for r in t.rows:
+            for c in r.cells:
+                for p in c.paragraphs:
+                    replace_para(p, data)
+
+    fix_certified_statements(doc)
+    doc.save(out_path)
+
+
+
+def main():
+    if len(sys.argv) not in (3, 4):
+        print("Usage: python vision_claim_extractor.py <bill> <prescription> [template]")
+        sys.exit(1)
+
+    bill = Path(sys.argv[1])
+    rx = Path(sys.argv[2])
+    template = Path(sys.argv[3]) if len(sys.argv) == 4 else Path("ECHS_Claim_template.docx")
+
+    data = extract_with_gpt5(bill, rx)
+    data = normalise(data)
+
+    Path(OUT_JSON).write_text(json.dumps(data, indent=2), encoding="utf-8")
+    fill_docx(template, Path(OUT_DOCX), data)
+
+    print("✅ Generated:")
+    print(" -", OUT_JSON)
+    print(" -", OUT_DOCX)
 
 
 if __name__ == "__main__":
