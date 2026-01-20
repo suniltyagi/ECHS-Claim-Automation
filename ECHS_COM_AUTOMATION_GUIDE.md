@@ -99,6 +99,41 @@ py run_claim_word_com.py ^
 
 ---
 
+---
+
+## Appendix — `claim_template_payload.json` vs `claim_values.json`
+
+### What’s the difference?
+
+- **`claim_template_payload.json`**
+  - Produced by: `vision_claim_extractor.py`
+  - Purpose: a **structured extraction payload** (rich, diagnostic, may contain extra fields)
+  - Repo policy: keep one **reference sample** committed for reproducibility.
+
+- **`claim_values.json`**
+  - Consumed by: `run_claim_word_com.py`
+  - Purpose: **exact placeholder value map** (keys match placeholders without braces)
+  - Repo policy: treat as **per-claim input**, usually not committed (store samples in `examples/`).
+
+### How to create / refresh `claim_template_payload.json`
+1) Run the extractor on a known input set.
+2) Save the JSON output as `claim_template_payload.json`.
+3) Commit only when intentionally updating the reference example.
+
+### How to create `claim_values.json`
+Create a key/value JSON where each key matches a placeholder name **without** braces.
+
+Example:
+```json
+{
+  "PATIENT_NAME": "ANURADHA TYAGI",
+  "ECHS_CARD_NO": "DL2000008879968",
+  "INVOICE_NO.": "A041997",
+  "...": "..."
+}
+```
+
+
 ## 6) Troubleshooting
 - If `pywin32` is installed but COM fails, run:
   ```bat
