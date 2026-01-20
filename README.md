@@ -1,3 +1,11 @@
+# ECHS Claim Automation
+
+👉 **Start here:** [ECHS_COM_AUTOMATION_GUIDE.md](ECHS_COM_AUTOMATION_GUIDE.md)
+
+This repository automates generation of ECHS contingent bills using
+Microsoft Word COM automation to preserve exact formatting fidelity.
+
+
 \# ECHS Claim Automation (Vision-based)
 
 
