@@ -2,69 +2,70 @@
 
 👉 **Start here:** [ECHS_COM_AUTOMATION_GUIDE.md](ECHS_COM_AUTOMATION_GUIDE.md)
 
-This repository automates generation of **ECHS Contingent Bill (Appx ‘A’, IAFA‑155)** documents with a hard constraint:
+This repository automates generation of **ECHS Contingent Bill (Appx ‘A’, IAFA-155)** documents with a strict, non-negotiable constraint:
 
 > **Formatting fidelity is more important than automation cleverness.**
 
-To preserve underline/bold/line‑flow exactly, the final document is rendered by **Microsoft Word via COM automation**.
+To guarantee exact underline, bold, spacing, and line-flow fidelity, the final
+document is rendered by **Microsoft Word itself**, via **Windows COM automation**.
 
 ---
 
-## Repository components
+## What this repository does (v1.0 scope)
 
-### A) Extraction (Vision → JSON)
-- **Script:** `vision_claim_extractor.py`
-- **Inputs:** bill image(s) + prescription image(s)
-- **Output:** a structured JSON payload you can inspect and validate.
+- Takes **human-validated claim data** in `claim_values.json`
+- Injects values into an **authoritative Word template**
+- Produces **submission-ready DOCX and PDF**
+- Ensures the output is **visually indistinguishable** from approved ECHS samples
 
-#### `claim_template_payload.json` (what it is)
-`claim_template_payload.json` is a **sample payload** produced by the extraction step and committed as a reference.
+There is **no OCR or vision extraction** in the current, supported workflow.
 
-It exists for two reasons:
-1) **Debug / audit:** you can see exactly what the extractor produced for a known input.
-2) **Contract:** it documents the expected shape of extracted data before mapping into template placeholders.
+---
 
-#### How `claim_template_payload.json` was created
-It was created by running the extractor against a known bill + prescription set and saving the extractor’s JSON output to this filename.
+## Core files
 
-Typical workflow:
-1. Put your inputs (bill + prescription images) in the repo (or a local working folder).
-2. Run:
+- **`ECHS_Claim_template.docx`**  
+  Authoritative ECHS claim template.  
+  Formatting is locked; placeholders are embedded.
+
+- **`place_holders_list.docx`**  
+  Final, approved list of placeholders.  
+  No new placeholders may be invented.
+
+- **`run_claim_word_com.py`**  
+  Canonical Word COM automation script.  
+  This is the **only execution entry point**.
+
+- **`examples/claim_values.sample.json`**  
+  Sample input showing the expected structure of `claim_values.json`.
+
+- **`out/`** *(gitignored)*  
+  Generated DOCX/PDF outputs.
+
+---
+
+## `claim_values.json` (single source of truth)
+
+`claim_values.json` is the **only input file** consumed by the automation.
+
+- Keys match placeholder names **without braces**
+- Values are **human-verified**
+- One file per claim
+- Typically **not committed** (samples live in `examples/`)
+
+The provenance, rationale, and creation process for `claim_values.json`
+are documented **in detail** in:
+
+👉 [ECHS_COM_AUTOMATION_GUIDE.md](ECHS_COM_AUTOMATION_GUIDE.md)
+
+---
+
+## End-to-end workflow (canonical)
+
+1. **Create `claim_values.json`**
+   - By manual, human-validated reading of bill + prescription
+   - Using `examples/claim_values.sample.json` as a starting point
+
+2. **Render**
    ```bat
-   py vision_claim_extractor.py
-   ```
-3. Save/rename the produced JSON output as:
-   - `claim_template_payload.json` (reference sample, committed), and/or
-   - `claim_values.json` (current run inputs for COM rendering; usually not committed).
-
-> Note: `claim_template_payload.json` is intended as a **reference sample**; do not overwrite it unless you are intentionally updating the reference example in the repo.
-
----
-
-### B) Rendering (JSON → DOCX/PDF via Word COM)
-- **Script:** `run_claim_word_com.py`
-- **Input:** `claim_values.json` (values mapped to template placeholders)
-- **Outputs:** `out/ECHS_Claim_filled.docx` and `out/ECHS_Claim_filled.pdf`
-
-This step is the one that produces the **printable/submittable** artefacts.
-
----
-
-## Key files
-- `ECHS_Claim_template.docx` — authoritative template (placeholders embedded; formatting locked)
-- `place_holders_list.docx` — authoritative placeholder list (do not invent new ones)
-- `run_claim_word_com.py` — Word COM renderer (format‑safe)
-- `vision_claim_extractor.py` — extraction script (bill/prescription → JSON)
-- `claim_template_payload.json` — **reference** extraction payload sample
-- `examples/claim_values.sample.json` — sample `claim_values.json` for the COM step (safe to commit)
-- `out/` — outputs (gitignored)
-
----
-
-## Recommended workflow (end-to-end)
-1) **Extract** with `vision_claim_extractor.py` → inspect JSON
-2) **Map** extracted JSON into `claim_values.json` (placeholder values)
-3) **Render** with `run_claim_word_com.py` → DOCX + PDF in `out/`
-
-For full Windows setup and commands, see the guide:
-- [ECHS_COM_AUTOMATION_GUIDE.md](ECHS_COM_AUTOMATION_GUIDE.md)
+   py run_claim_word_com.py --template ECHS_Claim_template.docx --values claim_values.json --outdocx out\ECHS_Claim_filled.docx --outpdf out\ECHS_Claim_filled.pdf

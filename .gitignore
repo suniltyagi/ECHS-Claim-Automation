@@ -17,3 +17,5 @@ out/
 claim_values.json
 examples/*.local.json
 
+# Word temp lock file
+~$*.docx
